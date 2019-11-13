@@ -1,6 +1,6 @@
-# Titan SSH Provider
+# Titan S3 Provider
 
-This is a basic Titan SSH provider. For more information on how it works,
+This is a basic Titan S3 provider. For more information on how it works,
 consult the titan documentation.
 
 ## Contributing

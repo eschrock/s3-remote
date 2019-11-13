@@ -61,7 +61,7 @@ class S3RemoteClient : RemoteClient {
                 p == "accessKey" -> accessKey = additionalProperties[p]
                 p == "secretKey" -> secretKey = additionalProperties[p]
                 p == "region" -> region = additionalProperties[p]
-                else -> throw IllegalArgumentException("Invalid SSH remote property '$p'")
+                else -> throw IllegalArgumentException("Invalid s3 remote property '$p'")
             }
         }
 

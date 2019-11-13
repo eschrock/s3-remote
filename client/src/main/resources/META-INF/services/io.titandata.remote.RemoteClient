@@ -1,1 +1,1 @@
-io.titandata.remote.ssh.client.SshRemoteClient
+io.titandata.remote.s3.client.S3RemoteClient
