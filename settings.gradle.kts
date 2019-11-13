@@ -1,3 +1,3 @@
-rootProject.name = "ssh-remote"
+rootProject.name = "s3-remote"
 
 include("client")
