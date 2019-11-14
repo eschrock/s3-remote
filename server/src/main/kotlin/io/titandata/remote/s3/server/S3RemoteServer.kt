@@ -10,6 +10,8 @@ import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import io.titandata.remote.RemoteServer
 import io.titandata.remote.RemoteServerUtil
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 
 /**
  * The S3 provider is a very simple provider for storing whole commits directly in a S3 bucket. Each commit is is a
@@ -78,6 +80,37 @@ class S3RemoteServer : RemoteServer {
     }
 
     /**
+     * Gets the path to the titan repo metadata file, which is either in the root of the bucket (if the path is
+     * null) or within the path directory.
+     */
+    internal fun getMetadataKey(key: String?): String {
+        return if (key == null) {
+            "titan"
+        } else {
+            "$key/titan"
+        }
+    }
+
+    /**
+     * Helper function that fetches the content of the metadata file as an input stream. Returns an empty file if
+     * it doesn't yet exist.
+     */
+    internal fun getMetadataContent(remote: Map<String, Any>, parameters: Map<String, Any>): InputStream {
+        val s3 = getClient(remote, parameters)
+        val (bucket, key) = getPath(remote)
+
+        try {
+            return s3.getObject(bucket, getMetadataKey(key)).objectContent
+        } catch (e: AmazonS3Exception) {
+            if (e.statusCode == 404) {
+                return ByteArrayInputStream("".toByteArray())
+            } else {
+                throw e
+            }
+        }
+    }
+
+    /**
      * Get the metadata for a single commit. This is stored as a user property on the object with the key
      * "io.titan-data". For historical reasons, we keep the metadata within the "properties" sub-object. This
      * matches how it's stored in the top-level metadata file.
@@ -90,14 +123,13 @@ class S3RemoteServer : RemoteServer {
             if (obj.userMetadata == null || !obj.userMetadata.containsKey(METADATA_PROP)) {
                 return null
             }
-            val metadata : Map<String, Any> = gson.fromJson(obj.userMetadata[METADATA_PROP], object : TypeToken<Map<String, Any>>() {}.type)
+            val metadata: Map<String, Any> = gson.fromJson(obj.userMetadata[METADATA_PROP], object : TypeToken<Map<String, Any>>() {}.type)
 
             if (!metadata.containsKey("properties")) {
                 return null
             }
             @Suppress("UNCHECKED_CAST")
             return metadata["properties"] as Map<String, Any>
-
         } catch (e: AmazonS3Exception) {
             if (e.statusCode == 404) {
                 return null
@@ -106,7 +138,34 @@ class S3RemoteServer : RemoteServer {
         }
     }
 
+    /**
+     * List all commits in a repository. This operates by processing the metadata file at the root of the S3 path. Each
+     * line is a JSON object with an "id" field and "properties" field.
+     */
     override fun listCommits(remote: Map<String, Any>, parameters: Map<String, Any>, tags: List<Pair<String, String?>>): List<Pair<String, Map<String, Any>>> {
-        TODO("not implemented") // To change body of created functions use File | Settings | File Templates.
+        val ret = mutableListOf<Pair<String, Map<String, Any>>>()
+        val metadata = getMetadataContent(remote, parameters)
+
+        try {
+            for (line in metadata.bufferedReader().lines()) {
+                if (line != "") {
+                    val result: Map<String, Any> = gson.fromJson(line, object : TypeToken<Map<String, Any>>() {}.type)
+                    val id = result.get("id")
+                    val properties = result.get("properties")
+                    if (id != null && properties != null) {
+                        id as String
+                        @Suppress("UNCHECKED_CAST")
+                        properties as Map<String, Any>
+                        if (util.matchTags(properties, tags)) {
+                            ret.add(id to properties)
+                        }
+                    }
+                }
+            }
+        } finally {
+            metadata.close()
+        }
+
+        return util.sortDescending(ret)
     }
 }

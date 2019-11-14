@@ -1,12 +1,14 @@
 package io.titandata.remote.s3.server
 
 import com.amazonaws.auth.AWSCredentialsProvider
-import com.amazonaws.auth.AWSStaticCredentialsProvider
-import com.amazonaws.auth.BasicAWSCredentials
 import com.amazonaws.auth.BasicSessionCredentials
 import com.amazonaws.services.s3.AmazonS3Client
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.internal.AmazonS3ExceptionBuilder
+import com.amazonaws.services.s3.model.AmazonS3Exception
 import com.amazonaws.services.s3.model.ObjectMetadata
+import com.amazonaws.services.s3.model.S3Object
+import com.amazonaws.services.s3.model.S3ObjectInputStream
 import io.kotlintest.TestCase
 import io.kotlintest.TestCaseOrder
 import io.kotlintest.TestResult
@@ -19,10 +21,10 @@ import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.impl.annotations.SpyK
 import io.mockk.mockk
-import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.verify
+import java.io.ByteArrayInputStream
 import java.lang.IllegalArgumentException
 
 class S3RemoteServerTest : StringSpec() {
@@ -121,7 +123,7 @@ class S3RemoteServerTest : StringSpec() {
         }
 
         "get commit fails if no user metadata present" {
-            val s3 : AmazonS3Client = mockk()
+            val s3: AmazonS3Client = mockk()
             every { s3.getObjectMetadata(any(), any()) } returns ObjectMetadata()
             every { client.getClient(any(), any()) } returns s3
             val result = client.getCommit(mapOf("bucket" to "bucket", "path" to "path"), emptyMap(), "id")
@@ -134,7 +136,7 @@ class S3RemoteServerTest : StringSpec() {
         "get commit fails if metadata property is missing" {
             val metadata = ObjectMetadata()
             metadata.userMetadata = mapOf()
-            val s3 : AmazonS3Client = mockk()
+            val s3: AmazonS3Client = mockk()
             every { s3.getObjectMetadata(any(), any()) } returns metadata
             every { client.getClient(any(), any()) } returns s3
             val result = client.getCommit(mapOf("bucket" to "bucket", "path" to "path"), emptyMap(), "id")
@@ -144,7 +146,7 @@ class S3RemoteServerTest : StringSpec() {
         "get commit fails if metadata is missing properties" {
             val metadata = ObjectMetadata()
             metadata.userMetadata = mapOf("io.titan-data" to "{}")
-            val s3 : AmazonS3Client = mockk()
+            val s3: AmazonS3Client = mockk()
             every { s3.getObjectMetadata(any(), any()) } returns metadata
             every { client.getClient(any(), any()) } returns s3
             val result = client.getCommit(mapOf("bucket" to "bucket", "path" to "path"), emptyMap(), "id")
@@ -154,12 +156,87 @@ class S3RemoteServerTest : StringSpec() {
         "get commit succeeds" {
             val metadata = ObjectMetadata()
             metadata.userMetadata = mapOf("io.titan-data" to "{\"properties\":{\"a\":\"b\"}}")
-            val s3 : AmazonS3Client = mockk()
+            val s3: AmazonS3Client = mockk()
             every { s3.getObjectMetadata(any(), any()) } returns metadata
             every { client.getClient(any(), any()) } returns s3
             val result = client.getCommit(mapOf("bucket" to "bucket", "path" to "path"), emptyMap(), "id")
             result shouldNotBe null
             result!!["a"] shouldBe "b"
+        }
+
+        "get commit returns null on 404 exception" {
+            val s3: AmazonS3Client = mockk()
+            val exceptionBuilder = AmazonS3ExceptionBuilder()
+            exceptionBuilder.statusCode = 404
+            every { s3.getObjectMetadata(any(), any()) } throws exceptionBuilder.build()
+            every { client.getClient(any(), any()) } returns s3
+            val result = client.getCommit(mapOf("bucket" to "bucket", "path" to "path"), emptyMap(), "id")
+            result shouldBe null
+        }
+
+        "get commit fails on other exceptions" {
+            val s3: AmazonS3Client = mockk()
+            every { s3.getObjectMetadata(any(), any()) } throws Exception()
+            every { client.getClient(any(), any()) } returns s3
+            shouldThrow<Exception> {
+                client.getCommit(mapOf("bucket" to "bucket", "path" to "path"), emptyMap(), "id")
+            }
+        }
+
+        "get metadata key returns titan if path is null" {
+            client.getMetadataKey(null) shouldBe "titan"
+        }
+
+        "get metadata key returns path directory if set" {
+            client.getMetadataKey("path") shouldBe "path/titan"
+        }
+
+        "get metadata content succeeds" {
+            val obj: S3Object = mockk()
+            every { obj.objectContent } returns S3ObjectInputStream(ByteArrayInputStream("test".toByteArray()), null)
+            val s3: AmazonS3Client = mockk()
+            every { s3.getObject(any<String>(), any<String>()) } returns obj
+            every { client.getClient(any(), any()) } returns s3
+            val result = client.getMetadataContent(mapOf("bucket" to "bucket", "path" to "path"), emptyMap())
+            result.bufferedReader().readText() shouldBe "test"
+            verify {
+                s3.getObject("bucket", "path/titan")
+            }
+        }
+
+        "get metadata content returns empty string on 404 error" {
+            val exceptionBuilder = AmazonS3ExceptionBuilder()
+            exceptionBuilder.statusCode = 404
+            val s3: AmazonS3Client = mockk()
+            every { s3.getObject(any<String>(), any<String>()) } throws exceptionBuilder.build()
+            every { client.getClient(any(), any()) } returns s3
+            val result = client.getMetadataContent(mapOf("bucket" to "bucket", "path" to "path"), emptyMap())
+            result.bufferedReader().readText() shouldBe ""
+        }
+
+        "get metadata content fails on unknown exception" {
+            val s3: AmazonS3Client = mockk()
+            every { s3.getObject(any<String>(), any<String>()) } throws AmazonS3ExceptionBuilder().build()
+            every { client.getClient(any(), any()) } returns s3
+            shouldThrow<AmazonS3Exception> {
+                client.getMetadataContent(mapOf("bucket" to "bucket", "path" to "path"), emptyMap())
+            }
+        }
+
+        "list commits returns an empty list" {
+            every { client.getMetadataContent(any(), any()) } returns ByteArrayInputStream("".toByteArray())
+            val result = client.listCommits(emptyMap(), emptyMap(), emptyList())
+            result.size shouldBe 0
+        }
+
+        "list commits filters result" {
+            every { client.getMetadataContent(any(), any()) } returns ByteArrayInputStream(
+                    arrayOf("{\"id\":\"a\",\"properties\":{\"tags\":{\"c\":\"d\"}}}",
+                            "{\"id\":\"b\",\"properties\":{}}")
+                            .joinToString("\n").toByteArray())
+            val result = client.listCommits(emptyMap(), emptyMap(), listOf("c" to null))
+            result.size shouldBe 1
+            result[0].first shouldBe "a"
         }
     }
 }
