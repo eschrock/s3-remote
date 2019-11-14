@@ -43,6 +43,10 @@ class S3RemoteServerTest : StringSpec() {
     override fun testCaseOrder() = TestCaseOrder.Random
 
     init {
+        "get provider returns s3" {
+            client.getProvider() shouldBe "s3"
+        }
+
         "get path returns bucket" {
             val (bucket) = client.getPath(mapOf("bucket" to "bucket"))
             bucket shouldBe "bucket"
@@ -176,9 +180,9 @@ class S3RemoteServerTest : StringSpec() {
 
         "get commit fails on other exceptions" {
             val s3: AmazonS3Client = mockk()
-            every { s3.getObjectMetadata(any(), any()) } throws Exception()
+            every { s3.getObjectMetadata(any(), any()) } throws AmazonS3ExceptionBuilder().build()
             every { client.getClient(any(), any()) } returns s3
-            shouldThrow<Exception> {
+            shouldThrow<AmazonS3Exception> {
                 client.getCommit(mapOf("bucket" to "bucket", "path" to "path"), emptyMap(), "id")
             }
         }
