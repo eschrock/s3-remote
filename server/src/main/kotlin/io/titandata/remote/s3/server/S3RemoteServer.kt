@@ -75,7 +75,7 @@ class S3RemoteServer : ArchiveRemote() {
     }
 
     /**
-     * Get an instance of the S3 client based on the remote configuration and parameters.
+     * Get an instance of the S3 client based on the remote configuration and parameters. Public for testing purposes.
      */
     fun getClient(remote: Map<String, Any>, parameters: Map<String, Any>): AmazonS3 {
         val accessKey = (parameters.get("accessKey") ?: remote["accessKey"]
@@ -97,9 +97,9 @@ class S3RemoteServer : ArchiveRemote() {
 
     /**
      * This function will return the (bucket, key) that identifies the given commit (or root key if no commit
-     * is specified). This takes into the account the optional path configured in the remote.
+     * is specified). This takes into the account the optional path configured in the remote. Public for testing.
      */
-    internal fun getPath(remote: Map<String, Any>, commitId: String? = null): Pair<String, String?> {
+    fun getPath(remote: Map<String, Any>, commitId: String? = null): Pair<String, String?> {
         val key = if (remote["path"] == null) {
             commitId
         } else if (commitId == null) {
